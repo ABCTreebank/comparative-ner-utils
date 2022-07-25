@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "comparative-ner-utils"
+version = "0.1.0"
+description = ""
+authors = ["Nori Hayashi <net@hayashi-lin.net>"]
+packages = [
+    { include = "abct_comp_ner_utils" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+typer = "^0.6.1"
+# datasets = "^2.3.2"
+datasets = {git = "https://github.com/huggingface/datasets", rev = "fcfcc951a73efbc677f9def9a8707d0af93d5890"}
+torch = {url = "https://download.pytorch.org/whl/cu115/torch-1.11.0%2Bcu115-cp310-cp310-linux_x86_64.whl"}
+transformers = "^4.20.0"
+fugashi = "^1.1.2"
+ipadic = "^1.0.0"
+evaluate = "^0.2.0"
+scikit-learn = "^1.1.1"
+scipy = "1.8.1"
+
+[tool.poetry.dev-dependencies]
+
+[tool.poetry.scripts]
+abct-comp-ner-utils = "abct_comp_ner_utils:app"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
