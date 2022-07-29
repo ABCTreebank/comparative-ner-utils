@@ -93,12 +93,17 @@ def split_data(
         h_test.writelines(data_test)
 
 _FEAT = tuple[str, Literal["start", "end"]]
+_LABEL_WEIGHT = defaultdict(lambda: 0)
+_LABEL_WEIGHT["root"] = -100
 
 def dict_to_bracket(datum: dict[str, Any]):
     comp_feats: Iterable[dict[str, Any]] = datum["comp"] or tuple()
     feats_pos: defaultdict[int, deque[_FEAT]] = defaultdict(deque)
 
-    for feat in comp_feats:
+    for feat in sorted(
+        comp_feats, 
+        key = lambda x: _LABEL_WEIGHT[x["label"]]
+    ):
         match feat:
             case {"start": b, "end": e, "label": l}:
                 feats_pos[b].append(
@@ -156,19 +161,6 @@ def _parse_br(token: str) -> tuple[int, Any]:
 
     return br_open_count, br_closed_list
 
-def bracket_to_dict(datum: str) -> dict[str, Any]:
-    token_list_raw = datum.split()
-    ID, token_list_raw = token_list_raw[0], token_list_raw[1:]
-    token_list = []
-
-    for idx, token in enumerate(token_list_raw):
-        open_count, close_labels = _parse_br(token)
-
-    return {
-        "ID": ID,
-
-    }
-
 @app.command("jsonl2br")
 def jsonl_to_bracket():
     """
@@ -181,6 +173,56 @@ def jsonl_to_bracket():
         for line in sys.stdin
     )
 
+_RE_TOKEN_BR_CLOSE = re.compile(r"^(?P<token>[^\]]+)\](?P<feat>[a-z0-9]+)(?P<rem>.*)$")
+def bracket_to_dict(line: str):
+    line_split = line.split(" ")
+    ID, tokens = line_split[0], line_split[1:]
+
+    res_token_list = []
+    comp_dict_list = []
+    stack_br_open: list[int] = []
+
+    for i, token in enumerate(tokens):
+        while token.startswith("["):
+            stack_br_open.append(i)
+            token = token[1:]
+
+        while (match := _RE_TOKEN_BR_CLOSE.search(token)):
+            start = stack_br_open.pop()
+            comp_dict_list.append(
+                {
+                    "start": start,
+                    "end": i + 1,
+                    "label": match.group("feat")
+                }
+            )
+            token = match.group("token") + match.group("rem")
+
+        res_token_list.append(token)
+
+    return {
+        "ID": ID,
+        "text": "".join(res_token_list),
+        "tokens": res_token_list,
+        "comp": comp_dict_list,
+    }
+
 @app.command("br2jsonl")
 def bracket_to_jsonl():
-    pass
+    """
+    Convert comparative data in text format into JSON.
+
+    The input data is given via STDIN.
+    Each line corresponds to exactly one example.
+    """
+    for line in sys.stdin:
+        line = line.strip()
+        if line:
+            json.dump(
+                bracket_to_dict(line),
+                sys.stdout,
+                ensure_ascii = False,
+            )
+            sys.stdout.write("\n")
+        else:
+            pass
