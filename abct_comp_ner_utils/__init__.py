@@ -27,7 +27,9 @@ def app_init(
         typer.echo("HF Hub login succeed", err = True)
 
 app.command("train")(abct_comp_ner_utils.train.train)
+app.command("find-hyper")(abct_comp_ner_utils.train.find_hyperparameters)
 app.command("predict")(abct_comp_ner_utils.train.predict)
+app.command("test")(abct_comp_ner_utils.train.test)
 
 @app.command("upload-data")
 def upload_data(
