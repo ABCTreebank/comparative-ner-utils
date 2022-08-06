@@ -1,19 +1,20 @@
 from collections import Counter, defaultdict
 import dataclasses
 from dataclasses import dataclass
-import itertools
+from typing import Sequence
 
 from sklearn.metrics import classification_report
 
 import datasets
 
 import evaluate
+import torch
 
 @dataclass(slots = True)
 class MetricState:
     pos_begin: int = 0
     label: str = ""
-    id2label_detailed: dict = dataclasses.field(default_factory = dict)
+    id2label_detailed: dict[int, tuple[str, str]] = dataclasses.field(default_factory = dict)
 
     def __bool__(self):
         return bool(self.label)
@@ -39,7 +40,7 @@ class MetricState:
                 return "CHANGE_STATE"
 
     def update(self, pos: int, label_id: int) -> "MetricState":
-        label = self.id2label_detailed[label_id][0]
+        label, *_ = self.id2label_detailed[label_id]
         if label == self.label:
             # continue the state
             return self
@@ -47,21 +48,34 @@ class MetricState:
             # make a new state
             return self.__class__(pos, label, self.id2label_detailed)
 
+def _safe_divide(devidend: int | float, divisor: int | float) -> int | float:
+    if divisor == 0:
+        return 0
+    else:
+        return devidend / divisor
+
+
 # https://www.davidsbatista.net/blog/2018/05/09/Named_Entity_Evaluation/
-def _calc_result(ct: Counter[str]) -> dict[str, int | float]:
+def _calc_spanwise_per_feat_result(ct: Counter[str]) -> dict[str, int | float]:
     res: dict[str, int | float] = {
         "possible_entries": ct["CORRECT"] + ct["WRONG_SPAN"] + ct["WRONG_LABEL"] + ct["WRONG_LABEL_SPAN"] + ct["MISSING"]
     }
     res["actual_entries"] = res["possible_entries"] - ct["MISSING"] + ct["SPURIOUS"]
 
-    res["precision_strict"] = ct["CORRECT"] / res["actual_entries"] 
-    res["recall_strict"] = ct["CORRECT"] / res["possible_entries"]
-    res["F1_strict"] = 2 * res["precision_strict"] * res["recall_strict"] / (res["precision_strict"] + res["recall_strict"])
+    res["precision_strict"] = _safe_divide(ct["CORRECT"], res["actual_entries"])
+    res["recall_strict"] = _safe_divide(ct["CORRECT"], res["possible_entries"])
+    res["F1_strict"] = 2 * _safe_divide(
+        res["precision_strict"] * res["recall_strict"],
+        (res["precision_strict"] + res["recall_strict"]),
+    )
 
     correct_with_partial = ct["CORRECT"] + 0.5 * ct["WRONG_SPAN"]
-    res["precision_partial"] = correct_with_partial / res["actual_entries"] 
-    res["recall_partial"] = correct_with_partial / res["possible_entries"]
-    res["F1_partial"] = 2 * res["precision_partial"] * res["recall_partial"] / (res["precision_partial"] + res["recall_partial"])
+    res["precision_partial"] = _safe_divide(correct_with_partial, res["actual_entries"])
+    res["recall_partial"] = _safe_divide(correct_with_partial, res["possible_entries"])
+    res["F1_strict"] = 2 * _safe_divide(
+        res["precision_partial"] * res["recall_partial"],
+        (res["precision_partial"] + res["recall_partial"]),
+    )
 
     return res
 
@@ -77,13 +91,13 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
 
     def _compute(
         self,
-        predictions,
+        predictions: torch.Tensor,
         references,
         *,
         input_ids,
-        label2id,
-        id2label_detailed,
-        special_ids = [],
+        label2id: dict[str, int],
+        id2label_detailed: dict[int, tuple[str, str]],
+        special_ids: Sequence[int] = [],
         normalize = True,
         sample_weight = True,
         **kwargs,
@@ -94,7 +108,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
         result_tokenwise_given = []
         result_tokenwise_pred = []
 
-        predictions = predictions.argmax(axis = 2)
+        predictions = predictions.argmax(dim = 2)
 
         for sent, label_ids, pred_ids in zip(
             input_ids,
@@ -116,14 +130,11 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
                 result_tokenwise_pred.append(pred_id)
 
             for i, (label_id, pred_id) in enumerate(
-                itertools.chain(
-                    zip(label_ids, pred_ids),
-                    ((0, 0), ),
-                )
+                zip(label_ids, pred_ids.tolist()),
             ):
                 # update states
                 prev_given_state, current_given_state = (
-                    current_given_state, 
+                    current_given_state,
                     current_given_state.update(i, label_id)
                 )
 
@@ -160,7 +171,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
                         if prev_given_state.label == prev_pred_state.label:
                             result_bin[prev_pred_state.label]["WRONG_SPAN"] += 1
                         else:
-                            result_bin[prev_pred_state.label]["WRONG_SPAN_LABEL"] += 1
+                            result_bin[prev_pred_state.label]["WRONG_LABEL_SPAN"] += 1
                         given_consumed = True
                     case "CHANGE_STATE" | "END_STATE", "KEEP_EMPTY" | "ENTER_STATE":
                         # ================|-------------
@@ -203,16 +214,24 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
                                 result_bin[prev_given_state.label]["WRONG_LABEL_SPAN"] += 1
                     case _:
                         pass
+
+        score_per_feat = {
+            key: _calc_spanwise_per_feat_result(val)
+            for key, val
+            in result_bin.items()
+        }
         return {
             "score_spanwise_details": { key: dict(val.items()) for key, val in result_bin.items() },
-            "score_spanwise": {
-                key: _calc_result(val) for key, val
-                in result_bin.items()
-            },
+            "score_spanwise": score_per_feat,
+            "score_spanwise_F1_strict": (
+                sum(d["F1_strict"] for d in score_per_feat.values()) 
+                / len(score_per_feat)
+            ),
             "score_tokenwise": classification_report(
                 result_tokenwise_given, result_tokenwise_pred,
                 labels = list(label2id.values()),
                 target_names = list(label2id.keys()),
                 output_dict = True,
+                zero_division = 0,
             )
         }
