@@ -485,7 +485,13 @@ def test(
                     ans
                 ):
                     if token == "[ P A D ]": break
-                    h_dump.write(f"{token},{pd.argmax()},{a}\n")
+                    h_dump.write(
+                        f"{token},"
+                        f"""{ID2LABEL[
+                            int(pd.argmax().item())
+                        ]},"""
+                        f"{ID2LABEL[a]}\n"
+                    )
 
     _eval: evaluate.Metric = _get_evaluator(
         str(evaluator_path)
