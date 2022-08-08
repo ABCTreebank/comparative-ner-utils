@@ -20,7 +20,7 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.suggest.optuna import OptunaSearch
 
-LABEL2ID_DETAILED = {
+LABEL2ID_DETAILED: dict[tuple[str, str], int] = {
     ("IGNORE", ""): -100,
     ("O", ""): 0,
     ("deg", "B"): 1,
@@ -73,51 +73,90 @@ def _get_evaluator(name: str):
     _EVALUATOR[name] = _EVALUATOR.get(name, None) or evaluate.load(name)
     return _EVALUATOR[name]
 
-_RE_FEAT_ARTIFACTS = re.compile(r"^(?P<name>[a-zA-Z]+)[0-9]")
+_RE_FEAT_ARTIFACTS = re.compile(r"^(?P<name>[a-zA-Z]+)[0-9]?")
 
 def _add_vectors(entry: datasets.arrow_dataset.Example):
-    labels = list(itertools.repeat("O", _MAX_LENGTH))
+    for k, v in _get_tokenizer()(
+        entry["tokens"],
+        is_split_into_words = True,
+        return_tensors = "pt", 
+        max_length = _MAX_LENGTH,
+        padding = "max_length",
+    ).items():
+        entry[k] = torch.reshape(v, (-1, ) )
 
-    if (ent_comps := entry["comp"]):
-        for s, e, l in zip(
+    ID_CLS: int = _get_tokenizer().cls_token_id or 2
+    ID_SEP: int = _get_tokenizer().sep_token_id or 3
+    labels = list(itertools.repeat(LABEL2ID["O"], _MAX_LENGTH))
+    pos_word: int = -1
+    current_feat: str = "O"
+    current_feat_is_start: bool = True
+    current_feat_end_pos_word: int = -1
+    
+    ent_comps = entry["comp"] or None
+    feat_list: list[tuple[int, int, str]] = list(
+        zip(
             ent_comps["start"],
             ent_comps["end"],
             ent_comps["label"],
-        ) if ent_comps["start"] else ():
-            if l == "root":
-                continue
-            elif (match := _RE_FEAT_ARTIFACTS.match(l)):
-                # remove artifacts
-                l = match.group("name")
+        )
+    ) if ent_comps else []
+    
+    for pos_subword, (input_id, input_token) in enumerate(
+        zip(
+            entry["input_ids"],
+            _get_tokenizer().convert_ids_to_tokens(
+                entry["input_ids"]
+            ),
+        )
+    ):
+        if input_id == ID_SEP:
+            # if it reaches end of sentence
+            # end procedure
+            break
+        elif input_id == ID_CLS:
+            pos_word += 1
+            continue
+        elif not input_token.startswith("##"):
+            pos_word += 1
 
-            s += 1
-            e += 1
-            # initial padding tokenを考慮
+        # if the span reach the end
+        # (based on word position)
+        if current_feat_end_pos_word == pos_word:
+            # reset the current feature to O
+            current_feat = "O"
 
-            labels[s] = f"B-{l}"
-            for i in range(s + 1, e):
-                labels[i] = f"I-{l}"
-    else:
-        pass
+        # inquire the current span
+        # (based on word position)
+        for start, end, label in feat_list:
+            # count [CLS] in
+            start += 1
+            end += 1 
+            
+            if (
+                label != "root" 
+                and pos_word == start 
+                and (match := _RE_FEAT_ARTIFACTS.match(label))
+            ):
+                previous_feat = current_feat
+                current_feat = match.group("name")
+                current_feat_end_pos_word = end
+                
+                if previous_feat != current_feat:
+                    current_feat_is_start = True
 
-    token_ids = _get_tokenizer().convert_tokens_to_ids(entry["tokens"])
-    assert(isinstance(token_ids, list))
+        # write feature in
+        # (based on subword position)
+        if current_feat != "O":
+            if current_feat_is_start:
+                labels[pos_subword] = LABEL2ID_DETAILED[current_feat, "B"]
+                current_feat_is_start = False
+            else:
+                labels[pos_subword] = LABEL2ID_DETAILED[current_feat, "I"]
 
-    token_subword_tokenized = _get_tokenizer()(
-        entry["tokens"],
-        padding = "max_length",
-        max_length = _MAX_LENGTH,
-        is_split_into_words = True,
-        return_tensors = "pt",
-    )
-
-    for k, v in token_subword_tokenized.items():
-        entry[k] = torch.reshape(v, (-1, ))
-
-    entry["label_ids"] =  [LABEL2ID[l] for l in labels]
-
+    entry["label_ids"] = labels
     return entry
-# === END DEF _add_vectors ===
+
 
 def _compute_metric(e: evaluate.Metric):
     def _run(pds: EvalPrediction):
