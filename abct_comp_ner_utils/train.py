@@ -4,11 +4,12 @@ import operator
 from pathlib import Path
 import re
 import sys
-from typing import Optional
+from typing import Optional, Sequence, Any
 
 import typer
 import flatten_dict
 
+import numpy as np
 import torch
 import torch.utils.data
 
@@ -388,6 +389,14 @@ def find_hyperparameters(
 
     print("BEST HYPERPARAMS: ", best_result.hyperparameters)
 
+def _transpose_dict(d: dict[str, Sequence[Any]] | None):
+    if d:
+        keys = d.keys()
+
+        for elems in zip(*(d[k] for k in keys)):
+            yield {k:v for k, v in zip(keys, elems)}
+
+
 def test(
     model_path: Optional[Path] = typer.Option(
         None, "--model", "-m",
@@ -425,73 +434,113 @@ def test(
     assert(isinstance(dataset, datasets.Dataset))
     dataset = dataset.map(
         _add_vectors,
-        remove_columns = dataset.column_names,
     )
 
     model.eval()
 
-    predicted = None
+    def _make_spans(
+        input: Sequence | np.ndarray,
+        pred: Sequence | np.ndarray
+    ):
+        result = {
+            "start": [],
+            "end": [],
+            "label": [],
+        }
 
-    input_ids = dataset["input_ids"]
+        current_label = ID2LABEL_DETAILED[0][0]
+        current_span_start: int = 0
 
-    # # batch forward
-    # _BATCH_SIZE = 64
-    # for i in range(len(input_ids) // _BATCH_SIZE):
-    #     start = _BATCH_SIZE * i
-    #     end = start + _BATCH_SIZE
+        for loc, (input_id, label_id) in enumerate(zip(input, pred)):
+            label = ID2LABEL_DETAILED[label_id][0]
 
-    #     result_batch = model.forward(
-    #         input_ids = torch.tensor(
-    #             dataset["input_ids"][start : end]
-    #         ),
-    #         attention_mask = torch.tensor(
-    #             dataset["attention_mask"][start : end]
-    #         ),
-    #         token_type_ids = torch.tensor(
-    #             dataset["token_type_ids"][start : end]
-    #                 ),
-    #     ).logits
+            if input_id == 0:
+                # reached padding
+                break
+            elif current_label != label:
+                # label changed
+                # conclude the old label
+                if current_label not in ("IGNORE", "O"):
+                    result["start"].append(current_span_start)
+                    result["end"].append(loc)
+                    result["label"].append(current_label)
+                else:
+                    pass
 
-    #     if isinstance(predicted, torch.Tensor):
-    #         predicted = torch.cat((predicted, result_batch.cpu()))
-    #     else:
-    #         predicted = result_batch.cpu()
+                # switch to new label
+                current_label = label
+                current_span_start = loc
 
-    # TODO: out of memory
+        return result
 
-    predicted = model.forward(
-        input_ids = torch.tensor(
-            dataset["input_ids"][:256]
-        ),
-        attention_mask = torch.tensor(
-            dataset["attention_mask"][:256]
-        ),
-        token_type_ids = torch.tensor(
-            dataset["token_type_ids"][:256]
-        ),
-    ).logits
+    def _decode(tokens):
+        tokens_decoded = _get_tokenizer().batch_decode(
+            [t for t in tokens if t != 0],
+            skip_special_tokens = True,
+        )
+
+        return [t.replace(" ", "") for t in tokens_decoded]
+
+    def _predict(
+        examples: datasets.arrow_dataset.Example | datasets.arrow_dataset.Batch
+    ):
+        examples["tokens_re"] = [
+            _decode(entry) for entry in examples["input_ids"]
+        ]
+
+        predictions_raw = model.forward(
+            input_ids = torch.tensor(examples["input_ids"]),
+            attention_mask = torch.tensor(examples["attention_mask"]),
+            token_type_ids = torch.tensor(examples["token_type_ids"]),
+        ).logits
+        match predictions_raw:
+            case torch.Tensor():
+                predictions: np.ndarray = predictions_raw.argmax(dim = 2).numpy()
+            case np.ndarray():
+                predictions: np.ndarray = predictions_raw.argmax(axis = 2)
+            case _:
+                raise TypeError
+        examples["prediction"] = predictions
+
+
+        examples["comp_predicted"] = [
+            _make_spans(i, p)
+            for i, p in zip(examples["input_ids"], predictions)
+        ]
+        
+        return examples
+
+    dataset = dataset.map(
+        _predict,
+        batched = True,
+        batch_size = 128,
+    )
 
     if dump:
         with open(dump, "w") as h_dump:
-            h_dump.write("TOKEN,PREDICTED,ANSWER\n")
-            for ipt, p, ans in zip(
-                dataset["input_ids"],
-                predicted, 
-                dataset["label_ids"]
-            ):
-                for token, pd, a in zip(
-                    _get_tokenizer().batch_decode(ipt), 
-                    p, 
-                    ans
-                ):
-                    if token == "[ P A D ]": break
-                    h_dump.write(
-                        f"{token},"
-                        f"""{ID2LABEL[
-                            int(pd.argmax().item())
-                        ]},"""
-                        f"{ID2LABEL[a]}\n"
-                    )
+            for entry in dataset:
+                json.dump(
+                    {
+                        "ID": entry["ID"],
+                        "tokens": entry["tokens"],
+                        "comp": list(_transpose_dict(entry["comp"])),
+                    },
+                    h_dump,
+                    ensure_ascii = False,
+                )
+                h_dump.write("\n")
+
+                json.dump(
+                    {
+                        "ID": f"{entry['ID']}_predicted",
+                        "tokens": entry["tokens_re"],
+                        "comp": list(_transpose_dict(entry["comp_predicted"]))
+                        ,
+                    },
+                    h_dump,
+                    ensure_ascii = False,
+                )
+                h_dump.write("\n")
 
     _eval: evaluate.Metric = _get_evaluator(
         str(evaluator_path)
@@ -500,8 +549,8 @@ def test(
     )
 
     res = _eval._compute(
-        predictions = predicted,
-        references = dataset["label_ids"][:256],
+        predictions = dataset["prediction"],
+        references = dataset["label_ids"],
         input_ids = dataset["input_ids"],
         special_ids = _get_tokenizer().all_special_ids,
         label2id = LABEL2ID,

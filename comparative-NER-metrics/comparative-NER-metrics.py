@@ -8,6 +8,7 @@ from sklearn.metrics import classification_report
 import datasets
 
 import evaluate
+import numpy as np
 import torch
 
 @dataclass(slots = True)
@@ -108,7 +109,11 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
         result_tokenwise_given = []
         result_tokenwise_pred = []
 
-        predictions = predictions.argmax(dim = 2)
+        match predictions:
+            case torch.Tensor():
+                predictions = predictions.argmax(dim = 2)
+            case np.ndarray():
+                predictions = predictions.argmax(axis = 2)
 
         for sent, label_ids, pred_ids in zip(
             input_ids,
