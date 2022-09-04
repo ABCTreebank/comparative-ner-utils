@@ -89,11 +89,43 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
             )
         )
 
+    def _compute_raw(
+        self,
+        predictions: torch.Tensor | np.ndarray,
+        references: torch.Tensor | np.ndarray,
+        *,
+        input_ids,
+        label2id: dict[str, int],
+        id2label_detailed: dict[int, tuple[str, str]],
+        special_ids: Sequence[int] = [],
+        normalize = True,
+        sample_weight = True,
+        **kwargs,
+    ):
+        match predictions:
+            case torch.Tensor():
+                predictions = predictions.argmax(dim = 2)
+            case np.ndarray():
+                predictions = predictions.argmax(axis = 2)
+            case _:
+                raise TypeError
+        
+        return self._compute(
+            predictions,
+            references, 
+            input_ids = input_ids,
+            label2id = label2id,
+            id2label_detailed = id2label_detailed,
+            special_ids = special_ids,
+            normalize = normalize,
+            sample_weight = sample_weight,
+            **kwargs
+        )
 
     def _compute(
         self,
-        predictions: torch.Tensor,
-        references,
+        predictions: torch.Tensor | np.ndarray | Sequence[Sequence[int]],
+        references: torch.Tensor | np.ndarray | Sequence[Sequence[int]],
         *,
         input_ids,
         label2id: dict[str, int],
@@ -108,12 +140,6 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
 
         result_tokenwise_given = []
         result_tokenwise_pred = []
-
-        match predictions:
-            case torch.Tensor():
-                predictions = predictions.argmax(dim = 2)
-            case np.ndarray():
-                predictions = predictions.argmax(axis = 2)
 
         for sent, label_ids, pred_ids in zip(
             input_ids,
@@ -135,7 +161,12 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
                 result_tokenwise_pred.append(pred_id)
 
             for i, (label_id, pred_id) in enumerate(
-                zip(label_ids, pred_ids.tolist()),
+                zip(
+                    label_ids, 
+                    pred_ids.tolist() 
+                    if isinstance(pred_ids, torch.Tensor)
+                    else pred_ids
+                )
             ):
                 # update states
                 prev_given_state, current_given_state = (
