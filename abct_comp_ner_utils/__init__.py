@@ -52,6 +52,55 @@ def upload_data(
         token = huggingface_hub.hf_api.read_from_credential_store()[1]
     )
 
+@app.command("split-by-ID-list")
+def split_data_by_ID_list(
+    id_list_file: typer.FileText = typer.Argument(
+        ...,
+        exists = True,
+        help = """
+            File containing test IDs separated by line breaks.
+        """
+    ),
+    output_dir: Path = typer.Option(
+        Path("."),
+        file_okay = False,
+        dir_okay = True,
+    )
+) -> None:
+    """
+    Split data into train and test data by specified IDs.
+
+    The input data is given in the JSONL format.
+    """
+
+    data: list[dict[str, Any]] = list(json.loads(r) for r in sys.stdin)
+    test_IDs: set[str] = set(i.strip() for i in id_list_file)
+
+    data_train = [
+        record for record in data 
+        if record["ID"] not in test_IDs
+    ]
+    data_test = [
+        record for record in data 
+        if record["ID"] in test_IDs
+    ]
+
+    # Ensure output dir
+    os.makedirs(output_dir, exist_ok = True)
+
+    # Output
+    with open(output_dir / "train.jsonl", "w") as h_train:
+        h_train.writelines(
+            json.dumps(r, ensure_ascii = False) + "\n"
+            for r in data_train
+        )
+
+    with open(output_dir / "test.jsonl", "w") as h_test:
+        h_test.writelines(
+            json.dumps(r, ensure_ascii = False) + "\n"
+            for r in data_test
+        )
+
 @app.command("split")
 def split_data(
     test_ratio: float = typer.Option(
@@ -65,7 +114,7 @@ def split_data(
     random_state: int = 2022_07_23,
 ):
     """
-    Split data into train and test data.
+    Randomly split data into train and test data.
 
     The input data is given via STDIN with records separated by a line break.
     """
@@ -204,7 +253,6 @@ def bracket_to_dict(line: str):
 
     return {
         "ID": ID,
-        "text": "".join(res_token_list),
         "tokens": res_token_list,
         "comp": comp_dict_list,
     }
