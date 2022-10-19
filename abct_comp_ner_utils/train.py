@@ -95,13 +95,25 @@ def _add_vectors(entry: datasets.arrow_dataset.Example):
     current_feat_end_pos_word: int = -1
     
     ent_comps = entry["comp"] or None
-    feat_list: list[tuple[int, int, str]] = list(
-        zip(
-            ent_comps["start"],
-            ent_comps["end"],
-            ent_comps["label"],
-        )
-    ) if ent_comps else []
+    
+    match ent_comps:
+        case dict():
+            feat_list: list[tuple[int, int, str]] = list(
+                zip(
+                    ent_comps["start"],
+                    ent_comps["end"],
+                    ent_comps["label"],
+                )
+            )
+        case list():
+            feat_list = [
+                (e["start"], e["end"], e["label"])
+                for e in ent_comps
+            ]
+        case None:
+            feat_list = []
+        case _:
+            raise TypeError
     
     for pos_subword, (input_id, input_token) in enumerate(
         zip(
