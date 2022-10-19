@@ -43,7 +43,7 @@ def upload_data(
 ):
     os.chdir(data_path)
 
-    dataset = datasets.load_dataset(str(data_path))
+    dataset = datasets.load_dataset(".")
 
     dataset.push_to_hub(
         "abctreebank/comparative-NER-BCCWJ",
