@@ -23,10 +23,13 @@ ray = {extras = ["tune"], version = "^1.13.0"}
 tensorboard = "^2.9.1"
 flatten-dict = "^0.4.2"
 optuna = "^2.10.1"
+attrs = "^22.1.0"
 
 [tool.poetry.dev-dependencies]
 torch-tb-profiler = "^0.4.0"
 ipykernel = "^6.15.2"
+widgetsnbextension = "^4.0.3"
+pandas-profiling = "^3.4.0"
 
 [tool.poetry.scripts]
 abct-comp-ner-utils = "abct_comp_ner_utils:app"
