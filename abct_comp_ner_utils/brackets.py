@@ -1,62 +1,100 @@
 from collections import defaultdict, deque
 import attr
 from enum import Enum, auto
-from typing import Iterable, Literal, Any, TextIO, Iterator
+from typing import Iterable, Any, TextIO, Iterator
 import re
 
-_FEAT = tuple[str, Literal["start", "end"]]
+class BracketPart(Enum):
+    START = auto()
+    END = auto()
+
 _LABEL_WEIGHT = defaultdict(lambda: 0)
 _LABEL_WEIGHT["root"] = -100
 
-def dict_to_bracket(datum: dict[str, Any]):
-    comp_feats: Iterable[dict[str, Any]] = datum["comp"] or tuple()
-    feats_pos: defaultdict[int, deque[_FEAT]] = defaultdict(deque)
+def _mod_token(
+    token: str,
+    feats: Iterable[tuple[str, BracketPart]]
+) -> str:
+    for feat in feats:
+        match feat:
+            case label, BracketPart.START:
+                token = f"[{token}"
+            case label, BracketPart.END:
+                token = f"{token}]{label}"
+            case _:
+                raise ValueError(
+                    f"Illegal comparative feature tuple {feat}"
+                )
+    return token
+
+def linearlize_annotation(
+    tokens: Iterable[str],
+    comp: Iterable[dict[str, Any]],
+    ID: str = "<UNKNOWN>"
+) -> str:
+    """
+    linearlize a comparative NER annotation.
+
+    Examples
+    --------
+    >>> linearlize_annotation(
+    ...     tokens = ["太郎", "花子", "より", "賢い"],
+    ...     comp = [{"start": 1, "end": 2, "label": "prej"}],
+    ... )
+    "太郎 [花子 より]prej 賢い"
+    """
+
+    feats_pos: defaultdict[
+        int,
+        deque[tuple[str, BracketPart]]
+    ] = defaultdict(deque)
 
     for feat in sorted(
-        comp_feats, 
+        comp,
         key = lambda x: _LABEL_WEIGHT[x["label"]]
     ):
         match feat:
             case {"start": b, "end": e, "label": l}:
-                feats_pos[b].append(
-                    (l, "start")
-                )
-                feats_pos[e - 1].appendleft(
-                    (l, "end")
-                )
+                feats_pos[b].append( (l, BracketPart.START) )
+                feats_pos[e - 1].append( (l,  BracketPart.END) )
             case _:
                 raise ValueError(
                     f"Illegal comparative feature {feat} "
-                    f"in {datum.get('ID', '<UNKNOWN>')}"
+                    f"in Record ID {ID}"
                 )
-
-    def _mod_token(token: str, feats: Iterable[_FEAT]) -> str:
-        for feat in feats:
-            match feat:
-                case label, "start":
-                    token = f"[{token}"
-                case label, "end":
-                    token = f"{token}]{label}"
-                case _:
-                    raise ValueError(
-                        f"Illegal comparative feature tuple {feat}"
-                    )
-        return token
-
-    token_bred = ' '.join(
+            
+    return ' '.join(
         _mod_token(t, feats_pos[idx])
-        for idx, t in enumerate(datum['tokens'])
+        for idx, t in enumerate(tokens)
     )
 
+def dict_to_bracket(datum: dict[str, Any]):
+    token_bred = linearlize_annotation(
+        datum["tokens"],
+        datum["comp"],
+        ID = datum["ID"]
+    )
     return f"{datum['ID']} {token_bred}\n"
 
-_RE_BR_OPEN = re.compile(r"^\[(?P<rem>.*)")
-_RE_BR_CLOSE = re.compile(r"(?P<rem>.*)\](?P<label>[a-z0-9]+)$")
 _RE_TOKEN_BR_CLOSE = re.compile(r"^(?P<token>[^\]]+)\](?P<feat>[a-z0-9]+)(?P<rem>.*)$")
+def delinearlize_annotation(
+    line: str
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """
+    Parse a linearlized a comparative NER annotation.
 
-def bracket_to_dict(line: str):
-    line_split = line.split(" ")
-    ID, tokens = line_split[0], line_split[1:]
+    Examples
+    --------
+    >>> delinearlize_annotation(
+    ...     "太郎 [花子 より]prej 賢い"
+    ... )
+    (
+        ["太郎", "花子", "より", "賢い"],
+        [{"start": 1, "end": 2, "label": "prej"}],
+    )
+    """
+
+    tokens = line.split(" ")
 
     res_token_list = []
     comp_dict_list = []
@@ -80,10 +118,18 @@ def bracket_to_dict(line: str):
 
         res_token_list.append(token)
 
+    return res_token_list, comp_dict_list
+
+def bracket_to_dict(line: str):
+    line_split = line.split(" ", 1)
+    ID, text = line_split[0], line_split[1]
+
+    tokens, comp = delinearlize_annotation(text)
+
     return {
         "ID": ID,
-        "tokens": res_token_list,
-        "comp": comp_dict_list,
+        "tokens": tokens,
+        "comp": comp,
     }
 
 _RE_COMMENT = re.compile(f"^//")
