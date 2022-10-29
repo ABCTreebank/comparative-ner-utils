@@ -278,21 +278,21 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
                 )
 
                 # For debugging
-                if sent_ID == "53_BCCWJ-ABC-ak-simple":
-                    print(
-                        f"""
-cursor: {i}
-given: {label_id}
-given_state: {prev_given_state}
-→ {current_given_state}
-transition: {prev_given_state.tell_change(current_given_state)}
+                # if sent_ID == "53_BCCWJ-ABC-ak-simple":
+#                     print(
+#                         f"""
+# cursor: {i}
+# given: {label_id}
+# given_state: {prev_given_state}
+# → {current_given_state}
+# transition: {prev_given_state.tell_change(current_given_state)}
 
-predicted: {pred_id}
-predicted_state: {prev_pred_state}
-→ {current_pred_state}
-transition: {prev_pred_state.tell_change(current_pred_state)}
-                        """
-                    )
+# predicted: {pred_id}
+# predicted_state: {prev_pred_state}
+# → {current_pred_state}
+# transition: {prev_pred_state.tell_change(current_pred_state)}
+#                         """
+#                     )
                 
                 match (
                     prev_given_state.tell_change(current_given_state),
