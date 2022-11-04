@@ -1,0 +1,2 @@
+# to prevent leaks of closed data
+*.jsonl
