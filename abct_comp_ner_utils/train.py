@@ -130,7 +130,9 @@ def _convert_record_to_vector_internal(
             # No annotation
             feat_list = []
         case _:
-            raise TypeError
+            raise TypeError(
+                f"Expected a list or a dict, but got a {type(comps)}"
+            )
 
     # ------
     # Make the ConLL label ID tensor
@@ -310,10 +312,10 @@ def convert_records_to_vectors(entry: E) -> E:
 
             label_ids = np.full((MAX_INPUT_LENGTH, ), LABEL2ID["O"])
             _convert_record_to_vector_internal(
-                entry,
-                entry["input_ids"],
-                tokens_subword,
-                label_ids, # out
+                comps = entry["comp"],
+                input_ids = entry["input_ids"],
+                tokens_subwords = tokens_subword,
+                output_label_vector = label_ids, # out
             )
             entry["label_ids"] = label_ids
         
@@ -344,10 +346,10 @@ def convert_records_to_vectors(entry: E) -> E:
                 entry["token_subwords"].append(tokens_subword)
                 
                 _convert_record_to_vector_internal(
-                    entry["comp"][i],
-                    entry["input_ids"][i],
-                    tokens_subword,
-                    label_ids[i]
+                    comps = entry["comp"][i],
+                    input_ids = entry["input_ids"][i],
+                    tokens_subwords = tokens_subword,
+                    output_label_vector = label_ids[i]
                 )
             
             entry["label_ids"] = label_ids
@@ -466,7 +468,8 @@ def train(
         use_auth_token = True,
         split = "train",
     )
-    assert isinstance(dataset_raw, datasets.Dataset)
+    if not isinstance(dataset_raw, datasets.Dataset):
+        raise TypeError
 
     dataset_raw = dataset_raw.map(
         convert_records_to_vectors,
