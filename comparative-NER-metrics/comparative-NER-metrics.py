@@ -127,7 +127,7 @@ def _calc_spanwise_per_feat_result(ct: Counter[str]) -> dict[str, int | float]:
     correct_with_partial = ct["CORRECT"] + 0.5 * ct["WRONG_SPAN"]
     res["precision_partial"] = _safe_divide(correct_with_partial, res["actual_entries"])
     res["recall_partial"] = _safe_divide(correct_with_partial, res["possible_entries"])
-    res["F1_strict"] = 2 * _safe_divide(
+    res["F1_partial"] = 2 * _safe_divide(
         res["precision_partial"] * res["recall_partial"],
         (res["precision_partial"] + res["recall_partial"]),
     )
