@@ -29,7 +29,7 @@ def _mod_token(
 
 def linearlize_annotation(
     tokens: Iterable[str],
-    comp: Iterable[dict[str, Any]],
+    comp: Iterable[dict[str, Any]] | None,
     ID: str = "<UNKNOWN>"
 ) -> str:
     """
@@ -49,20 +49,21 @@ def linearlize_annotation(
         deque[tuple[str, BracketPart]]
     ] = defaultdict(deque)
 
-    for feat in sorted(
-        comp,
-        key = lambda x: _LABEL_WEIGHT[x["label"]]
-    ):
-        match feat:
-            case {"start": b, "end": e, "label": l}:
-                feats_pos[b].append( (l, BracketPart.START) )
-                feats_pos[e - 1].append( (l,  BracketPart.END) )
-            case _:
-                raise ValueError(
-                    f"Illegal comparative feature {feat} "
-                    f"in Record ID {ID}"
-                )
-            
+    if comp:
+        for feat in sorted(
+            comp,
+            key = lambda x: _LABEL_WEIGHT[x["label"]]
+        ):
+            match feat:
+                case {"start": b, "end": e, "label": l}:
+                    feats_pos[b].append( (l, BracketPart.START) )
+                    feats_pos[e - 1].append( (l,  BracketPart.END) )
+                case _:
+                    raise ValueError(
+                        f"Illegal comparative feature {feat} "
+                        f"in Record ID {ID}"
+                    )
+
     return ' '.join(
         _mod_token(t, feats_pos[idx])
         for idx, t in enumerate(tokens)
