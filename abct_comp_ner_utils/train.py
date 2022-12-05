@@ -24,37 +24,19 @@ from ray.tune.suggest.optuna import OptunaSearch
 
 import abct_comp_ner_utils.brackets as br
 
-LABEL2ID_DETAILED: dict[tuple[str, str], int] = {
-    ("IGNORE", ""): -100,
-    ("O", ""): 0,
-    ("deg", "B"): 1,
-    ("prej", "B"): 2,
-    ("cont", "B"): 3,
-    ("diff", "B"): 4,
-    ("deg", "I"): 5,
-    ("prej", "I"): 6,
-    ("cont", "I"): 7,
-    ("diff", "I"): 8,
-}
-"""
-A dictionary that converts comparative NER labels to the corresponding integer IDs.
-The labels are pairs of a feature name (deg, prej, ...) and the beginning/intermediate indicator (B/I).
-"""
-
 LABEL2ID = {
-    (f"{prefix}-{name}" if prefix else name):value
-    for (name, prefix), value in LABEL2ID_DETAILED.items()
+    "IGNORE": -100,
+    "O": 0,
+    "deg": 1,
+    "prej": 2,
+    "cont": 3,
+    "diff": 4,
 }
 
 LABEL2ID_WO_IGNORE = {
     k:v
     for k, v in LABEL2ID.items()
     if k != "IGNORE"
-}
-
-ID2LABEL_DETAILED = {
-    i: label 
-    for label, i in LABEL2ID_DETAILED.items()
 }
 
 ID2LABEL = {
@@ -141,7 +123,6 @@ def _convert_record_to_vector_internal(
     # Define states
     pos_word: int = -1  # the pointer to original words
     current_feat: str = "O" # the current feature
-    current_feat_is_start: bool = True  # whether it is the beginning of the span
     current_feat_end_pos_word: int = -1
 
     # Enumerate words and subwords from the retokenization in a parallel way
@@ -194,21 +175,13 @@ def _convert_record_to_vector_internal(
                 and pos_word == start
                 and (match := _RE_FEAT_ARTIFACTS.match(label))
             ):
-                previous_feat = current_feat
                 current_feat = match.group("name")
                 current_feat_end_pos_word = end
-
-                if previous_feat != current_feat:
-                    current_feat_is_start = True
 
         # write feature in
         # (based on subword position)
         if current_feat != "O":
-            if current_feat_is_start:
-                output_label_vector[pos_subword] = LABEL2ID_DETAILED[current_feat, "B"]
-                current_feat_is_start = False
-            else:
-                output_label_vector[pos_subword] = LABEL2ID_DETAILED[current_feat, "I"]
+            output_label_vector[pos_subword] = LABEL2ID[current_feat]
         # === END FOR feat_list ===
     # === END FOR ===
 
@@ -379,11 +352,11 @@ def convert_vector_to_span(
         "label": [],
     }
 
-    current_label = ID2LABEL_DETAILED[0][0]
+    current_label = ID2LABEL[0]
     current_span_start: int = 0
 
     for loc, (input_id, label_id) in enumerate(zip(input, labels)):
-        label = ID2LABEL_DETAILED[label_id][0]
+        label = ID2LABEL[label_id]
 
         if input_id == 0:
             # reached padding
@@ -414,18 +387,24 @@ def convert_vector_to_span(
 def _compute_metric(e: evaluate.Metric):
     def _run(pds: EvalPrediction):
         # ensure cache
+        ID = ["<UNKNOWN>"] * len(pds.predictions)
+        predictions = pds.predictions.argmax(axis = 2)
+        
         e.add_batch(
-            predictions = pds.predictions,
+            predictions = predictions,
             references = pds.label_ids,
+            ID = ID,
+            input_ids = pds.inputs,
         )
         
         res = e._compute(
-            predictions = pds.predictions,
+            predictions = predictions,
             references = pds.label_ids,
+            ID = ID,
             input_ids = pds.inputs,
             special_ids = _get_tokenizer().all_special_ids,
             label2id = LABEL2ID,
-            id2label_detailed = ID2LABEL_DETAILED,
+            id2label = ID2LABEL,
         )
 
         return flatten_dict.flatten(res, reducer='path')
@@ -791,13 +770,14 @@ def test(
         input_ids = None,
         special_ids = _get_tokenizer().all_special_ids,
         label2id = LABEL2ID,
-        id2label_detailed = ID2LABEL_DETAILED,
+        id2label = ID2LABEL,
     )
 
     if res:
         dataset = dataset.add_column("error_list", res["error_list"])
         del res["error_list"]
         json.dump(res, sys.stdout)
+        
     else:
         raise RuntimeError("Evaluator returns a null result")
 

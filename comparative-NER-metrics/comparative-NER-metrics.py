@@ -30,7 +30,7 @@ class MetricState:
 
     consumed: bool = False
 
-    id2label_detailed: dict[int, tuple[str, str]] = dataclasses.field(default_factory = dict)
+    id2label: dict[int, str] = dataclasses.field(default_factory = dict)
     """
 
     """
@@ -40,7 +40,7 @@ class MetricState:
             f"<MetricState pos_begin: {self.pos_begin}, "
             f"label: {self.label}, "
             f"consumed: {self.consumed}, "
-            f"id2label_detailed: {id(self.id2label_detailed)}>"
+            f"id2label: {id(self.id2label)}>"
         )
 
     def __str__(self):
@@ -90,7 +90,7 @@ class MetricState:
 
         """
 
-        label, *_ = self.id2label_detailed[label_id]
+        label= self.id2label[label_id]
         if label == self.label:
             # continue the state
             return self
@@ -100,7 +100,7 @@ class MetricState:
                 pos_begin = pos,
                 label = label,
                 consumed = False,
-                id2label_detailed = self.id2label_detailed
+                id2label = self.id2label,
             )
 
 def _safe_divide(devidend: int | float, divisor: int | float) -> int | float:
@@ -178,7 +178,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
         *,
         input_ids,
         label2id: dict[str, int],
-        id2label_detailed: dict[int, tuple[str, str]],
+        id2label: dict[int, str],
         special_ids: Sequence[int] = [],
         normalize = True,
         sample_weight = True,
@@ -197,7 +197,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
             references, 
             input_ids = input_ids,
             label2id = label2id,
-            id2label_detailed = id2label_detailed,
+            id2label = id2label,
             special_ids = special_ids,
             normalize = normalize,
             sample_weight = sample_weight,
@@ -211,7 +211,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
         ID: torch.Tensor | np.ndarray | Sequence[str],
         input_ids,
         label2id: dict[str, int],
-        id2label_detailed: dict[int, tuple[str, str]],
+        id2label: dict[int, str],
         special_ids: Sequence[int] = [],
     ):
         """
@@ -229,7 +229,7 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
             Sentence words.
         label2id
             A dictionary from NER labels to IDs.
-        id2label_detailed
+        id2label
             A dictionary from IDs to labels.
         """
         
@@ -246,12 +246,11 @@ class ComparativeNERAccuracy(evaluate.module.Metric):
             predictions,
             error_list
         ):
-            prev_given_state = MetricState(id2label_detailed = id2label_detailed)
-            current_given_state = MetricState(id2label_detailed = id2label_detailed)
-            prev_pred_state = MetricState(id2label_detailed = id2label_detailed)
-            current_pred_state = MetricState(id2label_detailed = id2label_detailed)
+            prev_given_state = MetricState(id2label = id2label)
+            current_given_state = MetricState(id2label = id2label)
+            prev_pred_state = MetricState(id2label = id2label)
+            current_pred_state = MetricState(id2label = id2label)
 
-            
             for token, label_id, pred_id in zip(sent, label_ids, pred_ids):
                 if token in special_ids:
                     continue
