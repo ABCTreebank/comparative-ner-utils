@@ -181,19 +181,22 @@ def _convert_record_to_vector_internal(
             break
         elif input_id == ID_CLS:
             # if it hits on the beginning of the sentence [CLS]
+            pass
+        elif input_token.startswith("##"):
+            # if it's a subword
+            
+            # don't move the pos_word pointer 
+            # keep the current one
+            print(pos_subword, pos_word, label_ids_no_alignment[pos_word])
 
-            # increment the pointer to words
-            pos_word += 1
-        elif not input_token.startswith("##"):
-            # if it is not a subword
-            # increment the word pointer
             label_ids[pos_subword] = label_ids_no_alignment[pos_word]
-            pos_word += 1
         else:
-            # if its a subword
+            # if it is not a subword
+            # increment the pos_word pointer
+            pos_word += 1
+            print(pos_subword, pos_word, label_ids_no_alignment[pos_word])
             
             label_ids[pos_subword] = label_ids_no_alignment[pos_word]
-            # no incr
 
     match return_type:
         case "pt":
