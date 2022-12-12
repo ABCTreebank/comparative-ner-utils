@@ -700,10 +700,15 @@ class NERWithRootJudgment(enum.IntEnum):
 
         return map_pred_ref, map_ref_pred
 
+_SEQ_INDEX_JUDGMENT = tuple[
+    tuple[int, NERWithRootJudgment],
+    ...
+]
 class NERWithRootMetricsResult(TypedDict):
     scores_spanwise: dict[NERWithRootLabel, dict[str, float]]
     F1_strict_average: float
     F1_partial_average: float
+    alignments: list[tuple[_SEQ_INDEX_JUDGMENT, _SEQ_INDEX_JUDGMENT]]
 
 class NERWithRootMetrics(evaluate.Metric):
     def _info(self):
@@ -732,6 +737,9 @@ class NERWithRootMetrics(evaluate.Metric):
                 label: Counter()
                 for label in NERWithRootLabel
             }
+        result_align: list[
+            tuple[_SEQ_INDEX_JUDGMENT, _SEQ_INDEX_JUDGMENT]
+        ] = []
 
         for pred, ref in zip(predictions, references):
             pred_complist = _convert_vector_to_record_internal(pred)
@@ -741,6 +749,7 @@ class NERWithRootMetrics(evaluate.Metric):
                 pred_complist,
                 ref_complist,
             )
+            result_align.append( (map_p2r, map_r2p) )
 
             for p, pred_comp in enumerate(pred_complist):
                 _, pred_ref_jud = map_p2r[p]
@@ -833,4 +842,5 @@ class NERWithRootMetrics(evaluate.Metric):
             "scores_spanwise": res_per_label,
             "F1_strict_average": sum(F1_strict_list) / len(F1_strict_list),
             "F1_partial_average": sum(F1_partial_list) / len(F1_partial_list),
+            "alignments": result_align,
         }
