@@ -302,7 +302,7 @@ def convert_annotation_entries_to_matrices(
                     padding = "max_length",
                 ).items()
             )
-            print("XXX")
+
             input_ids = entry["input_ids"]
 
             # translate input_ids (subword IDs) back to Japanese
@@ -314,11 +314,6 @@ def convert_annotation_entries_to_matrices(
 
             match return_type:
                 case "pt":
-                    # label_ids = torch.full(
-                    #     (MAX_INPUT_LENGTH, ),
-                    #     LABEL2ID["O"],
-                    # )
-                    
                     entry["label_ids"] = _convert_record_to_vector_internal(
                         comps = entry["comp"],
                         input_ids = input_ids,
@@ -326,11 +321,6 @@ def convert_annotation_entries_to_matrices(
                         return_type = "pt",
                     )
                 case "np":
-                    # label_ids = np.full(
-                    #     (MAX_INPUT_LENGTH, ),
-                    #     LABEL2ID["O"],
-                    # )
-                    
                    entry["label_ids"] = _convert_record_to_vector_internal(
                         comps = entry["comp"],
                         input_ids = input_ids,
