@@ -187,14 +187,12 @@ def _convert_record_to_vector_internal(
             
             # don't move the pos_word pointer 
             # keep the current one
-            print(pos_subword, pos_word, label_ids_no_alignment[pos_word])
 
             label_ids[pos_subword] = label_ids_no_alignment[pos_word]
         else:
             # if it is not a subword
             # increment the pos_word pointer
             pos_word += 1
-            print(pos_subword, pos_word, label_ids_no_alignment[pos_word])
             
             label_ids[pos_subword] = label_ids_no_alignment[pos_word]
 
@@ -424,77 +422,107 @@ class CompDict(TypedDict):
     label: str
 
 def _convert_vector_to_record_internal(
-    label_ids: Iterable[int],
+    label_ids: Sequence[int],
 ) -> list[CompDict]:
     res: list[CompDict] = []
 
     label_stack: list[tuple[int, str]] = []
     # (start_pos, label)
 
+    # First iteration
+    # to find root spans
+    for pos_subword, l_id in enumerate(label_ids):
+        label = ID2LABEL[l_id]
+
+        if label not in ("O", "IGNORE"):
+            if not label_stack:
+                # stack is empty
+                # a new root span
+                label_stack.append(
+                    (pos_subword, "root")
+                )
+            # else:
+                # already in a root span
+                # do nothing
+        else:
+            if label_stack:
+                # end of all spans
+                b, _ = label_stack.pop()
+                res.append(
+                    {
+                        "start": b,
+                        "end": pos_subword,
+                        "label": "root",
+                    }
+                )
+                label_stack.clear()
+            # else:
+                  # do nothing
+
+    # postprocessing
+    if label_stack:
+        b, _ = label_stack.pop()
+        res.append(
+            {
+                "start": b,
+                "end": len(label_ids),
+                "label": "root",
+            }
+        )
+
+    # clear the stack
+    label_stack.clear()
+
+    # Second iteration
+    # to find specific spans
     for pos_subword, l_id in enumerate(label_ids):
         label = ID2LABEL[l_id]
         
-        match label:
-            case "root":
-                if not label_stack:
-                    # stack is empty 
-                    # a new root span
+        if label in ("O", "IGNORE", "root"):
+            if label_stack:
+                # end of all spans
+                for b, label in label_stack:
+                    res.append(
+                        {
+                            "start": b,
+                            "end": pos_subword,
+                            "label": label,
+                        }
+                    )
+
+                # clear the stack
+                label_stack.clear()
+            # else:
+                # do nothing
+        else:
+            # for non-root labels
+            if not label_stack:
+                # register the beginning of the span
+                label_stack.append(
+                    (pos_subword, label)
+                )
+            else:
+                b, prev_label = label_stack[-1]
+                if prev_label != label:
+                    # if the span changes
+                    # pop out the previous span
+                    res.append(
+                        {
+                            "start": b,
+                            "end": pos_subword,
+                            "label": prev_label,
+                        }
+                    )
+                    label_stack.pop()
+
+                    # register the new span
                     label_stack.append(
                         (pos_subword, label)
                     )
                 # else:
-                    # already in a root span
-                    # do nothing
-            case "O" | "IGNORE":
-                if label_stack:
-                    # end of all spans
-                    for b, label in label_stack:
-                        res.append(
-                            {
-                                "start": b,
-                                "end": pos_subword,
-                                "label": label,
-                            }
-                        )
-
-                    # clear the stack
-                    label_stack.clear()
-                # else:
-                    # do nothing
-            case _:
-                # for non-root labels
-                if not label_stack:
-                    # a new root span
-                    label_stack.append(
-                        (pos_subword, "root")
-                    )
-
-                    # register the beginning of the span
-                    label_stack.append(
-                        (pos_subword, label)
-                    )
-                else:
-                    b, prev_label = label_stack[-1]
-                    if prev_label != label:
-                        # if the span changes
-                        # pop out the previous span
-                        res.append(
-                            {
-                                "start": b,
-                                "end": pos_subword,
-                                "label": prev_label,
-                            }
-                        )
-                        label_stack.pop()
-
-                        # register the new span
-                        label_stack.append(
-                            (pos_subword, label)
-                        )
-                    # else:
-                    #     # if the span not changes
-                    #     # leave the things as they are
-                    #     pass
+                #     # if the span not changes
+                #     # leave the things as they are
+                #     pass
 
     # determine other spans
     return res
