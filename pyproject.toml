@@ -26,7 +26,7 @@ attrs = "^22.1.0"
 "ruamel.yaml" = "^0.17.21"
 sentencepiece = "^0.1.97"
 numpy = "^1.23.5"
-abctk-obj = {git = "https://github.com/ABCTreebank/abctk.obj", rev = "26def5fa82645bf494b7a63163cff555330b99ba"}
+abctk-obj = {git = "https://github.com/ABCTreebank/abctk.obj", rev = "d0ee79fa0dfc13b0a2f6c00909cd253652b9c691"}
 
 
 [tool.poetry.group.dev.dependencies]
