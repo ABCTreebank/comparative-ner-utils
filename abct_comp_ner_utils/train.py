@@ -22,7 +22,7 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.suggest.optuna import OptunaSearch
 
-import abct_comp_ner_utils.brackets as br
+import abctk.obj.comparative as aoc
 
 LABEL2ID = {
     "IGNORE": -100,
@@ -788,19 +788,17 @@ def test(
             dump_output = [
                 {
                     "ID": entry["ID"],
-                    "reference_linear": br.linearlize_annotation(
+                    "reference_linear": aoc.linearize_annotations(
                         entry["tokens"],
                         entry["comp"],
                         # list(_transpose_dict(entry["comp"])),
-                        ID = entry["ID"],
                     ),
-                    "prediction_linear": br.linearlize_annotation(
+                    "prediction_linear": aoc.linearize_annotations(
                         [
                             w for w in entry["token_subwords"]
                             if w not in {'[PAD]'}
                         ],
                         list(_transpose_dict(entry["comp_predicted"])),
-                        ID = entry["ID"],
                     ),
                     "errors": entry["error_list"],
                 }

@@ -15,6 +15,8 @@ from transformers import BertJapaneseTokenizer, BertForTokenClassification
 import datasets
 import evaluate
 
+import abctk.obj.comparative as aoc
+
 BertForNERWithRoot = BertForTokenClassification
 
 @enum.unique
@@ -416,15 +418,10 @@ def convert_annotation_entries_to_matrices(
     return entry
 
 
-class CompDict(TypedDict):
-    start: int
-    end: int
-    label: str
-
 def _convert_vector_to_record_internal(
     label_ids: Sequence[int],
-) -> list[CompDict]:
-    res: list[CompDict] = []
+) -> list[aoc.CompSpan]:
+    res: list[aoc.CompSpan] = []
 
     label_stack: list[tuple[int, str]] = []
     # (start_pos, label)
@@ -536,7 +533,7 @@ def convert_predictions_to_annotations(
         case datasets.arrow_dataset.Example():
             pass
         case datasets.arrow_dataset.Batch():
-            result: list[list[CompDict]] = []
+            result: list[list[aoc.CompSpan]] = []
 
             batch_size = len(entry[label_ids_key])
 
@@ -551,192 +548,6 @@ def convert_predictions_to_annotations(
             raise TypeError(f"Illegal input type: {type(entry)}")
 
     return entry
-
-PENALTY_NONE = 0
-PENALTY_HALF = 1
-PENALTY_FULL = 2
-J = TypeVar("J", bound = "NERWithRootJudgment")
-@enum.unique
-class NERWithRootJudgment(enum.IntEnum):
-    CORRECT = enum.auto()
-
-    WRONG_SPAN = enum.auto()
-    WRONG_LABEL = enum.auto()
-    WRONG_LABEL_SPAN = enum.auto()
-
-    MISSING = enum.auto()
-    SPURIOUS = enum.auto()
-
-    # https://stackoverflow.com/a/44644576/15279488
-    @classmethod
-    @cache
-    def penalty(cls: Type[J], val: Union[J, int]):
-        if isinstance(val, cls):
-            match val:
-                case val.CORRECT:
-                    return PENALTY_NONE
-                case val.WRONG_SPAN:
-                    return PENALTY_HALF
-                case _:
-                    return PENALTY_FULL
-        else:
-            if val == cls.CORRECT.value:
-                return PENALTY_NONE
-            elif val == cls.WRONG_SPAN.value:
-                return PENALTY_HALF
-            else:
-                return PENALTY_FULL
-            
-    @overload
-    @classmethod
-    def judge(cls, pred: CompDict, ref: CompDict) -> "NERWithRootJudgment":
-        ...
-
-    @overload
-    @classmethod
-    def judge(cls, pred: None, ref: CompDict) -> Literal["NERWithRootJudgment.MISSING"]:
-        ...
-
-    @overload
-    @classmethod
-    def judge(cls, pred: CompDict, ref: None) -> Literal["NERWithRootJudgment.SPURIOUS"]:
-        ...
-
-    @overload
-    @classmethod
-    def judge(cls, pred: None, ref: None) -> None:
-        ...
-
-    @classmethod
-    def judge(
-        cls,
-        pred: CompDict | None,
-        ref: CompDict | None,
-    ) -> Literal[
-        "NERWithRootJudgment.SPURIOUS",
-        "NERWithRootJudgment.MISSING",
-    ] | "NERWithRootJudgment" | None:
-        if ref is None:
-            if pred is None:
-                return None
-            else:
-                return cls.SPURIOUS
-        else:
-            if pred is None:
-                return cls.MISSING
-            else:
-                eq_start = ref["start"] == pred["start"]
-                eq_end = ref["end"] == pred["end"]
-                eq_label = ref["label"] == pred["label"]
-                
-                match eq_start, eq_end, eq_label:
-                    case True, True, True:
-                        return cls.CORRECT
-                    case True, True, False:
-                        return cls.WRONG_LABEL
-                    case _, _, True:
-                        return cls.WRONG_SPAN
-                    case _, _, _:
-                        return cls.WRONG_LABEL_SPAN
-
-    @classmethod
-    def align(
-        cls,
-        predictions: Sequence[CompDict],
-        references: Sequence[CompDict],
-    ) -> tuple[
-        tuple[tuple[int, "NERWithRootJudgment"], ...],
-        tuple[tuple[int, "NERWithRootJudgment"], ...],
-    ]:
-        size_pred = len(predictions)
-        size_ref = len(references)
-
-        if size_pred == 0 and size_ref == 0:
-            return tuple(), tuple()
-        # ------------
-        # Make judgment tables
-        # ------------
-        judgments = np.array(
-            [
-                [
-                    NERWithRootJudgment
-                    .judge(
-                        pred = predictions[p],
-                        ref = references[r],
-                    )
-                    for r in range(size_ref)
-                ]
-                for p in range(size_pred)
-            ]
-        ).reshape(
-            (size_pred, size_ref)
-        )
-
-        costs = np.vectorize(
-            NERWithRootJudgment.penalty, 
-            otypes = [np.int_],
-        )(judgments)
-
-        padding_pred_idle = np.full(
-            (size_pred, size_pred),
-            PENALTY_FULL,
-            dtype = np.int_
-        )
-        padding_idle_ref = np.full(
-            (size_ref, size_ref),
-            PENALTY_FULL,
-            dtype = np.int_
-        )
-        padding_idle_idle = np.full(
-            (size_ref, size_pred),
-            PENALTY_NONE,
-            dtype = np.int_
-        )
-        costs_ext = np.block(
-            [
-                [costs, padding_pred_idle],
-                [padding_idle_ref, padding_idle_idle],
-            ]
-        )
-
-        # -------------
-        # Compute strict scores
-        # -------------
-        opt_pred: NDArray[np.int_]
-        opt_ref: NDArray[np.int_]
-        opt_pred, opt_ref = linear_sum_assignment(costs_ext)
-
-        map_pred_ref = tuple(
-            (
-                (r, NERWithRootJudgment(judgments[p][r]) )
-                if r < size_ref
-                else (-1, NERWithRootJudgment.SPURIOUS)
-            )
-            for p, r in zip(opt_pred, opt_ref)
-            if p < size_pred
-        )
-
-        map_ref_pred = tuple(
-            ( 
-                (p, NERWithRootJudgment(judgments[p][r]))
-                if p < size_pred
-                else (-1, NERWithRootJudgment.MISSING)
-            )
-            for p, r in zip(opt_pred, opt_ref)
-            if r < size_ref
-        )
-
-        return map_pred_ref, map_ref_pred
-
-_SEQ_INDEX_JUDGMENT = tuple[
-    tuple[int, NERWithRootJudgment],
-    ...
-]
-class NERWithRootMetricsResult(TypedDict):
-    scores_spanwise: dict[NERWithRootLabel, dict[str, float]]
-    F1_strict_average: float
-    F1_partial_average: float
-    alignments: list[tuple[_SEQ_INDEX_JUDGMENT, _SEQ_INDEX_JUDGMENT]]
 
 class NERWithRootMetrics(evaluate.Metric):
     def _info(self):
@@ -757,118 +568,17 @@ class NERWithRootMetrics(evaluate.Metric):
         self, 
         predictions: Iterable[Sequence[int]], 
         references: Iterable[Sequence[int]]
-    ) -> NERWithRootMetricsResult:
-        result_bin: dict[
-            NERWithRootLabel,
-            Counter[NERWithRootJudgment]
-        ] = {
-                label: Counter()
-                for label in NERWithRootLabel
-            }
-        result_align: list[
-            tuple[_SEQ_INDEX_JUDGMENT, _SEQ_INDEX_JUDGMENT]
-        ] = []
-
-        for pred, ref in zip(predictions, references):
-            pred_complist = _convert_vector_to_record_internal(pred)
-            ref_complist = _convert_vector_to_record_internal(ref)
-
-            map_p2r, map_r2p = NERWithRootJudgment.align(
-                pred_complist,
-                ref_complist,
-            )
-            result_align.append( (map_p2r, map_r2p) )
-
-            for p, pred_comp in enumerate(pred_complist):
-                _, pred_ref_jud = map_p2r[p]
-
-                label_enum = NERWithRootLabel[
-                    pred_comp["label"]
-                ]
-                result_bin[label_enum][pred_ref_jud] += 1
-            
-            for r, ref_comp in enumerate(ref_complist):
-                pred_index, ref_pred_jud = map_r2p[r]
-                if pred_index < 0:
-                    label_enum = NERWithRootLabel[
-                        ref_comp["label"]
-                    ]
-                    result_bin[label_enum][ref_pred_jud] += 1
-
-        # ------
-        # Calc spanwise scores
-        # ------
-        res_per_label: dict[
-            NERWithRootLabel,
-            dict[str, float],
-        ] = {}
-        for label in (
-            l for l in NERWithRootLabel
-            if l not in (
-                NERWithRootLabel.O,
-                NERWithRootLabel.IGNORE,
-            )
-        ):
-            ct = result_bin[label]
-            possible_entries = (
-                ct[NERWithRootJudgment.CORRECT] 
-                + ct[NERWithRootJudgment.WRONG_SPAN]
-                + ct[NERWithRootJudgment.WRONG_LABEL]
-                + ct[NERWithRootJudgment.WRONG_LABEL_SPAN]
-                + ct[NERWithRootJudgment.MISSING]
-            )
-
-            actual_entries = (
-                possible_entries
-                - ct[NERWithRootJudgment.MISSING]
-                + ct[NERWithRootJudgment.SPURIOUS]
-            )
-
-            precision_strict = ct[NERWithRootJudgment.CORRECT] / actual_entries
-            recall_strict = ct[NERWithRootJudgment.CORRECT] / possible_entries
-            F1_strict = (
-                2 * precision_strict * recall_strict
-                / (precision_strict + recall_strict)
-            )
-
-            correct_with_partial = (
-                ct[NERWithRootJudgment.CORRECT]
-                + 0.5 * ct[NERWithRootJudgment.WRONG_SPAN]
-            )
-            precision_partial = correct_with_partial / actual_entries
-            recall_partial = correct_with_partial / possible_entries
-            F1_partial = (
-                2 * precision_partial * recall_partial
-                / (precision_partial + recall_partial)
-            )
-
-            res_per_label[label] = {
-                key.name: value
-                for key, value in ct.items()
-            }
-            res_per_label[label]["possible_entries"] = possible_entries
-            res_per_label[label]["actual_entries"] = actual_entries
-            
-            res_per_label[label]["precision_strict"] = precision_strict
-            res_per_label[label]["recall_strict"] = recall_strict
-            res_per_label[label]["F1_strict"] = F1_strict
-
-            res_per_label[label]["precision_partial"] = precision_partial
-            res_per_label[label]["recall_partial"] = recall_partial
-            res_per_label[label]["F1_partial"] = F1_partial
-        
-        F1_strict_list = tuple(
-            res["F1_strict"]
-            for res in res_per_label.values()
+    ) -> aoc.Metrics:
+        predictions_span = tuple(
+            _convert_vector_to_record_internal(pred)
+            for pred in predictions
         )
-        F1_partial_list = tuple(
-            res["F1_partial"]
-            for res in res_per_label.values()
+        references_span = tuple(
+            _convert_vector_to_record_internal(ref)
+            for ref in references
         )
         
-        return {
-            "scores_spanwise": res_per_label,
-            "F1_strict_average": sum(F1_strict_list) / len(F1_strict_list),
-            "F1_partial_average": sum(F1_partial_list) / len(F1_partial_list),
-            "alignments": result_align,
-        }
+        return aoc.calc_prediction_metrics(
+            predictions_span,
+            references_span,
+        )

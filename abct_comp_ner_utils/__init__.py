@@ -13,7 +13,7 @@ import huggingface_hub.hf_api
 import datasets
 
 import abct_comp_ner_utils.train
-import abct_comp_ner_utils.brackets as br
+import abctk.obj.comparative as aoc
 
 app = typer.Typer()
 
@@ -153,7 +153,7 @@ def jsonl_to_bracket():
     The input data is given via STDIN in the JSONL format.
     """
     sys.stdout.writelines(
-        br.dict_to_bracket(json.loads(line))
+        aoc.dict_to_bracket(json.loads(line))
         for line in sys.stdin
     )
 
@@ -165,14 +165,6 @@ def bracket_to_jsonl():
     The input data is given via STDIN.
     Each line corresponds to exactly one example.
     """
-    for line in sys.stdin:
-        line = line.strip()
-        if line:
-            json.dump(
-                br.bracket_to_dict(line),
-                sys.stdout,
-                ensure_ascii = False,
-            )
-            sys.stdout.write("\n")
-        else:
-            pass
+    for record in aoc.read_bracket_annotation_file(sys.stdin):
+        json.dump(record, sys.stdout, ensure_ascii = False)
+        sys.stdout.write("\n")

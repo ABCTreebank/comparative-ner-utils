@@ -10,14 +10,14 @@ packages = [
 [tool.poetry.dependencies]
 python = ">=3.10,<3.11"
 typer = "^0.6.1"
-datasets = "^2.4.0"
+datasets = ">=2.4, <2.8"
 torch = {url = "https://download.pytorch.org/whl/cu115/torch-1.11.0%2Bcu115-cp310-cp310-linux_x86_64.whl"}
 transformers = "^4.24.0"
 fugashi = "^1.1.2"
 ipadic = "^1.0.0"
 evaluate = "^0.3.0"
 scikit-learn = "^1.1.1"
-scipy = "1.8.1"
+scipy = "^1.9.3"
 ray = {extras = ["tune"], version = "^1.13.0"}
 tensorboard = "^2.9.1"
 flatten-dict = "^0.4.2"
@@ -25,6 +25,9 @@ optuna = "^2.10.1"
 attrs = "^22.1.0"
 "ruamel.yaml" = "^0.17.21"
 sentencepiece = "^0.1.97"
+numpy = "^1.23.5"
+abctk-obj = {git = "https://github.com/ABCTreebank/abctk.obj", rev = "26def5fa82645bf494b7a63163cff555330b99ba"}
+
 
 [tool.poetry.group.dev.dependencies]
 pandas-profiling = "^3.6.1"
