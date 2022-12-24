@@ -26,11 +26,11 @@ attrs = "^22.1.0"
 "ruamel.yaml" = "^0.17.21"
 sentencepiece = "^0.1.97"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
+pandas-profiling = "^3.6.1"
 torch-tb-profiler = "^0.4.0"
 ipykernel = "^6.15.2"
 widgetsnbextension = "^4.0.3"
-pandas-profiling = "^3.4.0"
 ipywidgets = "^8.0.2"
 
 [tool.poetry.scripts]
