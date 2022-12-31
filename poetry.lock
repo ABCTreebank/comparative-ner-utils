@@ -17,8 +17,8 @@ scipy = "^1.9.3"
 [package.source]
 type = "git"
 url = "https://github.com/ABCTreebank/abctk.obj"
-reference = "dd22668165021e768ddf9736824977880dcaf391"
-resolved_reference = "dd22668165021e768ddf9736824977880dcaf391"
+reference = "8ed25de8453fe3160db4b9e06d521077f87358db"
+resolved_reference = "8ed25de8453fe3160db4b9e06d521077f87358db"
 
 [[package]]
 name = "absl-py"
@@ -4250,4 +4250,4 @@ testing = ["flake8 (<5)", "func-timeout", "jaraco.functools", "jaraco.itertools"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.11"
-content-hash = "6aab454aad1064495acf31d10b0b7af9c83095a9b7721fcc19ac573d2ed9414a"
+content-hash = "74ebcd21491b106ece50ce79ca26c31cbacb626ca2508f3f09ffefb61270df24"
