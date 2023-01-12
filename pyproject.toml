@@ -26,8 +26,7 @@ attrs = "^22.1.0"
 "ruamel.yaml" = "^0.17.21"
 sentencepiece = "^0.1.97"
 numpy = "^1.23.5"
-abctk-obj = {git = "https://github.com/ABCTreebank/abctk.obj", rev = "8ed25de8453fe3160db4b9e06d521077f87358db"}
-
+abctk-obj = {git = "https://github.com/ABCTreebank/abctk.obj", tag = "0.2.1"}
 
 [tool.poetry.group.dev.dependencies]
 pandas-profiling = "^3.6.1"
