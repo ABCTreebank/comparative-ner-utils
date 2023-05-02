@@ -1,15 +1,16 @@
-from collections import defaultdict, deque
 import json
 import os
 from pathlib import Path
 import random
-import re
 import sys
-from typing import Any, Iterable, Literal, Optional, Sequence
+import dataclasses
+from typing import Any, Optional
 
+import ruamel.yaml
 import typer
 
-import huggingface_hub.hf_api 
+import numpy as np
+import huggingface_hub.hf_api
 import datasets
 
 import abct_comp_ner_utils.train
@@ -145,26 +146,86 @@ def split_data(
         h_test.writelines(data_test)
 
 
-@app.command("jsonl2br")
-def jsonl_to_bracket():
+@app.command("comp2br")
+def comp_to_bracket():
     """
     Convert comparative JSON data into texts with brackets.
 
     The input data is given via STDIN in the JSONL format.
     """
     sys.stdout.writelines(
-        aoc.dict_to_bracket(json.loads(line))
+        aoc.CompRecord.to_brackets_full(json.loads(line))
         for line in sys.stdin
     )
 
-@app.command("br2jsonl")
-def bracket_to_jsonl():
+@app.command("br2comp")
+def bracket_to_comp(
+    input_type: str = typer.Option(
+        "txt",
+        "--input-type", "-i",
+    ),
+    output_type: str = typer.Option(
+        "jsonl",
+        "--output-type", "-o",
+    ),
+    to_dice: bool = typer.Option(
+        False,
+        "--dice",
+    ),
+):
     """
     Convert comparative data in text format into JSON.
 
     The input data is given via STDIN.
     Each line corresponds to exactly one example.
     """
-    for record in aoc.read_bracket_annotation_file(sys.stdin):
-        json.dump(record, sys.stdout, ensure_ascii = False)
-        sys.stdout.write("\n")
+    input_type = input_type.lower()
+    output_type = output_type.lower()
+
+    yaml = None
+
+    if input_type == "txt":
+        records = aoc.CompRecord.read_bracket_annotation_file(sys.stdin)
+    elif input_type == "yaml":
+        yaml = yaml or ruamel.yaml.YAML()
+        records = (
+            aoc.CompRecord.from_brackets(
+                line = record["annot"],
+                ID = record["ID"],
+                comments = record.get("comments"),
+                ID_v1 = record.get("ID_v1"),
+            )
+            for record in yaml.load(sys.stdin)
+        )
+    elif input_type == "jsonl":
+        records = (
+            aoc.CompRecord.from_brackets(
+                line = record["annot"],
+                ID = record["ID"],
+                comments = record.get("comments"),
+                ID_v1 = record.get("ID_v1"),
+            )
+            for line in sys.stdin
+            for record in (json.loads(line), )
+        )
+    else:
+        raise ValueError(f"{input_type} is an invalid input file type")
+
+    if to_dice:
+        records = (rec.dice() for rec in records)
+
+    if output_type == "jsonl":
+        for rec in records:
+            json.dump(dataclasses.asdict(rec), sys.stdout, ensure_ascii = False)
+            sys.stdout.write("\n")
+    elif output_type == "yaml":
+        records_asdict = tuple(dataclasses.asdict(rec) for rec in records)
+        yaml = yaml or ruamel.yaml.YAML()
+        yaml.representer.add_representer(
+            np.int64, 
+            lambda repr, i: repr.represent_scalar("tag:yaml.org,2002:int", str(i))
+        )
+
+        yaml.dump(records_asdict, sys.stdout)
+    else:
+        raise ValueError(f"{output_type} is an invalid output file type")
